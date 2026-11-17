@@ -1,0 +1,182 @@
+/**
+ * A0 assembly: the live World. Owns the ledger, the four tools, the WebUI
+ * surface and the prompt template. No model calls, no network, no secrets.
+ */
+import { Buffer } from 'node:buffer';
+import type { ToolDef, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
+import type { WorldContext } from 'cortico/world.ts';
+import { nowIso } from 'cortico/core/util.ts';
+import type { QqDigestConfigSection } from './config.ts';
+import { QQD_CONFIG_GROUP } from './config.ts';
+import { RecordStore } from './store.ts';
+import { createTools } from './tools.ts';
+import { ENV_PROMPT_FILE, ENV_PROMPT_KEY, envPromptVars, reminderText } from './prompt.ts';
+import { CATEGORIES, PANEL_METHODS, PANEL_READ_METHODS } from './types.ts';
+import type { Category, IngestEvent, PanelInvokeMethod, UpdatePatch } from './types.ts';
+
+const WORLD_ID = 'qq-digest';
+const PANEL_ID = 'records';
+
+const asCategory = (v: unknown): Category | null =>
+  (typeof v === 'string' && (CATEGORIES as readonly string[]).includes(v) ? v as Category : null);
+
+export class QqDigestWorld implements World {
+  readonly id = WORLD_ID;
+  readonly store: RecordStore;
+  private host: WorldHost | null = null;
+
+  constructor(private readonly ctx: WorldContext<QqDigestConfigSection>) {
+    this.store = new RecordStore(ctx.dataDir, ctx.cfg.maxActiveRecords);
+  }
+
+  /** C8: hot values are read on every prefix rebuild. */
+  envPromptVars(): Record<string, string> {
+    return envPromptVars(this.store, this.ctx.cfg.maxActiveRecords);
+  }
+
+  tools(): ToolDef[] {
+    return createTools({
+      store: this.store,
+      // C2: the raw event store is shared; we only read it.
+      range: (q) => (this.host ? this.host.store.range(q) : []) as readonly IngestEvent[],
+      audit: async (type, text) => {
+        if (!this.host) return;
+        // Q1: always external; the copy never carries group text.
+        await this.host.pushEvent({
+          type, ts: nowIso(this.ctx.timezone), source: WORLD_ID,
+          origin: 'external', senderKey: WORLD_ID, text,
+        });
+      },
+      now: () => nowIso(this.ctx.timezone),
+    });
+  }
+
+  /** C1/C9: panel RPC, read methods are GET-safe; export uses $binary. */
+  webUi(): WorldWebUiDecl {
+    const store = this.store;
+    const stats = store.stats();
+    return {
+      lamps: [
+        {
+          label: `${stats.pendingGroups} 群待开`,
+          state: stats.pendingGroups > 0 ? 'loading' : 'online',
+          hint: '开群只能由人工在面板里标记',
+        },
+        {
+          label: `${stats.pendingRecords} 条待确认`,
+          state: stats.pendingRecords > 0 ? 'loading' : 'online',
+          hint: '待办与见解需要人工确认',
+        },
+      ],
+      badges: [
+        { label: '记录', value: stats.records },
+        { label: '群', value: stats.groups },
+      ],
+      panels: [{
+        id: PANEL_ID,
+        title: 'QQ 群消息摘要',
+        description: '浏览四类记录、纠正内容、逐群开启。未开启的群拒绝一切写入。',
+        getMethods: [...PANEL_READ_METHODS],
+      }],
+      promptDocs: [{
+        key: ENV_PROMPT_KEY,
+        title: 'QQ 群消息摘要 · 环境提示词',
+        description: '进入 system 前缀的那一段；热值由 envPromptVars() 提供。',
+        path: ENV_PROMPT_FILE,
+        role: 'envPrompt',
+        vars: [
+          { name: 'qq-digest.pendingGroups', description: '尚未人工开启的群数' },
+          { name: 'qq-digest.pendingRecords', description: '尚未确认的记录数' },
+          { name: 'qq-digest.lastReview', description: '上次回看游标' },
+          { name: 'qq-digest.maxActiveRecords', description: '每群记录上限（猜测起点值）' },
+        ],
+      }],
+      storage: [{
+        key: 'qq-digest.ledger',
+        label: 'QQ 群消息摘要记录本',
+        kind: 'disk',
+        location: this.ctx.dataDir,
+        danger: true,
+        note: '只清本包 dataDir 下的 qq-digest.* 文件；宿主事件库原件不受影响。',
+        stat: () => `${store.stats().records} 条记录 / ${store.stats().bytes} 字节`,
+        clear: async () => { await store.clear(); return '记录本已清空'; },
+      }],
+      config: [QQD_CONFIG_GROUP],
+      invoke: async (panel: string, method: string, args: unknown[]) => {
+        if (panel !== PANEL_ID) throw new Error('unknown panel');
+        if (!(PANEL_METHODS as readonly string[]).includes(method)) throw new Error('unknown method');
+        const m = method as PanelInvokeMethod;
+        const first = (i: number): unknown => args[i];
+        switch (m) {
+          case 'listRecords': {
+            const conv = first(0);
+            const category = asCategory(first(1));
+            return store.list({
+              ...(typeof conv === 'string' ? { conv } : {}),
+              ...(category ? { category } : {}),
+            });
+          }
+          case 'listGroups': return store.groups();
+          case 'setGroupEnabled': {
+            const conv = first(0);
+            if (typeof conv !== 'string' || typeof first(1) !== 'boolean') throw new Error('bad args');
+            return store.setGroupEnabled(conv, first(1) as boolean);
+          }
+          case 'updateRecord': {
+            const id = Number(first(0));
+            if (!Number.isInteger(id)) throw new Error('bad id');
+            const p = first(1) && typeof first(1) === 'object'
+              ? first(1) as Record<string, unknown> : {};
+            const category = asCategory(p.category);
+            const patch: UpdatePatch = {
+              ...(typeof p.content === 'string' ? { content: p.content } : {}),
+              ...(category ? { category } : {}),
+              ...(typeof p.done === 'boolean' ? { done: p.done } : {}),
+            };
+            return store.update(id, patch);
+          }
+          case 'removeRecord': {
+            const id = Number(first(0));
+            if (!Number.isInteger(id)) throw new Error('bad id');
+            return { removed: await store.remove(id) };
+          }
+          case 'exportTable': {
+            const body = store.list({ limit: 1000 }).map((r) => JSON.stringify(r)).join('\n') + '\n';
+            return { $binary: { mime: 'application/x-ndjson', base64: Buffer.from(body, 'utf8').toString('base64') } };
+          }
+          case 'stat': return store.stats();
+          case 'clear': { await store.clear(); return 'cleared'; }
+        }
+      },
+    };
+  }
+
+  async start(host: WorldHost): Promise<void> {
+    this.host = host;
+    await this.store.load();
+    const s = this.store.stats();
+    // Q1: external reminder, counts only, no group text.
+    await host.pushEvent({
+      type: 'qq-digest.reminder',
+      ts: nowIso(this.ctx.timezone),
+      source: WORLD_ID,
+      origin: 'external',
+      senderKey: WORLD_ID,
+      text: reminderText(s.pendingGroups, s.pendingRecords),
+    });
+  }
+
+  /** C8: Core grants only 20s for stop(); bound the flush so shutdown cannot hang. */
+  async stop(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bounded = new Promise<void>((resolve) => { timer = setTimeout(resolve, 8000); });
+    try {
+      await Promise.race([this.store.flush(), bounded]);
+    } finally {
+      // Otherwise an 8s timer would keep the process alive after every stop().
+      if (timer) clearTimeout(timer);
+    }
+    await this.store.markReview();
+    this.host = null;
+  }
+}

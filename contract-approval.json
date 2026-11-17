@@ -1,0 +1,34 @@
+{
+  "schema": "coopanion-forge/contract-approval@1",
+  "task": "cortico-world-qq-digest：QQ 会话消息分类成待办/目标/提示词参考/建议与见解四类记录，包内记录本 + WebUI 面板，轮内四工具，群性质判定后人工开群，本地可安装包",
+  "platform": "cortico@0.2.16",
+  "decision": "approved",
+  "verdict": "裁决：准奏，附 10 条必改（C1–C10，全文见 qq-digest-research-20261117/CONTRACT.md）。能力面逐条：World id qq-digest 过字符闸不撞内建 [FACT V2-C7]；api 精确 6，describe 与代码一致是 check 硬闸 [V7-C2 CONFIRMED]。四工具 qqd_add/qqd_update/qqd_list/qqd_remove 成立，但 tags 语义与 snapshot 自动留最后一次无平台实现 [V2-C2 REFUTED→C3]，工具名硬失败仅三类、包内重名与形状错运行时不拦 [V2-C3 REFUTED→C4]，qqd_add 不标 barrierAfter [V2-C4 CONFIRMED]。轮内分类是唯一通道（World 不能调模型不出网 [V2-B2]），幂等由包内唯一键 (conv,message_id,category,content哈希) 兜底 [V2-B1]。会话键按 source 四分支派生：qq-official senderKey 即会话键、onebot 从 meta.raw、astrbot conv 三段非强制、内置 qq 第四分支 [V1 C1–C7 CONFIRMED+fix]；qq-official 无数字群号，跨入口同群只做人工映射表 [V1-C2]；转发/引用不在事件面，一期占位 [V1-B3/B4]。记录本落 dataDir qq-digest 前缀 JSON + 原子写 tmp/rename，事件库只做审计不可删原件 [V4 全 CONFIRMED]；逐群开关与人工纠正走包内存储 + 面板自定义 invoke，config 面进不了动态群 id [V3-B1/B2，C2 fix：GET args 可缺省]。群性质：无硬判别信号，判而不开，人标 enabled 才生效，工作群必开=标记后保持开 [V6 c11/c12]。安全：external 缺省、handler 回查 store 核验入参、SEC-4 裸扫零命中、无 speak/act、禁 innerHTML、StoragePart 一键清空 [V5-1..10]。验收：describe→check→link 装→重启后 17788 /api/extensions state==loaded 再 activation enabled；动态证据待操作员 [V7-C4/C12]。 仓主四件裁决（2026-11-18）：C1 判而不开人标才开；Q2 单 add + category 枚举；Q1 提醒事件标 external 且文案不含原文；Q3 四入口全覆盖（含内置 qq）。跨入口映射表划到阶段二。",
+  "plan_file": "PLAN.md",
+  "plan_sha256": "f93be1adcee96b5d7b3b083fe4e0baafbb478ea5ff9712131cc576157b2fa4c5",
+  "scope": [
+    "package.json",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".gitignore",
+    "src/**",
+    "tests/**"
+  ],
+  "issued_by": "coopanion-forge-contract",
+  "issued_at": "2026-11-18T00:27:40+08:00",
+  "expires_at": "2026-12-02T00:00:00+08:00",
+  "expires_note": "14 天窗口对齐 qqbot/bridge 上游改版复核 [V1-C12]；plan_sha256 不匹配时旧准奏作废重审。",
+  "report": "C:/Users/54301/qq-digest-research-20261117/CONTRACT.md",
+  "verify_commands": [
+    "pnpm -C C:/Users/54301/forge-refresh-20261116/fresh/Cortico describe:extension C:/Users/54301/qq-digest",
+    "pnpm -C C:/Users/54301/forge-refresh-20261116/fresh/Cortico check:extension C:/Users/54301/qq-digest",
+    "pnpm -C C:/Users/54301/qq-digest test",
+    "curl -s http://127.0.0.1:17788/api/extensions"
+  ]
+}

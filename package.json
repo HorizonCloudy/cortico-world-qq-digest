@@ -1,0 +1,41 @@
+{
+  "name": "cortico-world-qq-digest",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Classify QQ group messages in-turn into todo, goal, prompt reference and insight records, kept in a per-package ledger with a WebUI panel.",
+  "license": "MIT",
+  "repository": "https://github.com/HorizonCloudy/cortico-world-qq-digest",
+  "keywords": ["cortico-world", "cortico"],
+  "engines": { "node": ">=22" },
+  "packageManager": "pnpm@12.18.0",
+  "main": "./src/index.ts",
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "QQ 群消息摘要",
+    "tags": ["qq", "im"],
+    "describe": "describe.json",
+    "webUiClient": "src/webui/client.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "describe.json",
+    "src/webui/client.js"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "cortico": "^0.2.16",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
