@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 (2026-11-18)
+
+修复两处会让本包在真实宿主里失效的缺陷，不改 `PLAN.md` 的设计与契约 C1–C10。
+
+- **envPrompt 变量不可渲染**：平台 `core/template.ts:9` 的占位符名只允许 `[\w.]`，原先的 `qq-digest.*` 含连字符，四个 `{{...}}` 会原样进入 system 前缀。变量名统一改为 `qq.digest.*`，并收敛到 `ENV_PROMPT_VAR_DECLS` 单一真源；新增 `tests/env-template.test.ts` 用平台 `renderTemplate` 真渲染并做负向控制。
+- **与 QQ 插件联动断裂**：四个 QQ World 推事件时 `source` 是裸 worldId（`qq-official` / `onebot-bridge` / `astrbot` / `qq`），`.message` 只是 `type` 里的事件种类；`EventStore.range` 对 source 做全等比较（`event-store.ts:272,290`）。原实现拿调用方传入的完整 type 去查，必然零命中，`qqd_add` 永远回执 `source-unknown`。现改为按裸 worldId 查询，并把记录里的 source 也存成裸 worldId 以便三元组复查。
+- 按已装插件源码补齐四入口字段：`qq-official` 读 `meta.messageId`（驼峰）、`meta.target` / `meta.author`；`astrbot` 读 `meta.platformMsgId`；`onebot-bridge` 读 `meta.raw`；内置 `qq` 读 `meta.message_id` / `meta.conv`。原有字段顺序保留为兼容回退。
+- `ENV_PROMPT.md` 与 `qqd_add` 的 `source` 参数描述写明四入口取值、type 与 source 的区别、以及 conv / message_id 的取法；`qqd_add` 的 description 不再把 `qq-official.message` 当成 source 示例。
+- 新增 `tests/live-qq.test.ts`：四入口真实事件形状 + 模拟宿主精确匹配，验证 `verifySource` 与 `qqd_add` 能写入；含「完整 type 查不到」的负向控制。测试总数 92 → 108。
+- `package.json` 的 `repository` 改成对象形式，消除 `npm publish` 的自动规范化警告。
+- 交付口径按仓主 2026-11-18 后续指令更新：GitHub 公开仓库 → npm 公开包 → 从 npm 安装进宿主；**不进索引仓**。0.1.0 的「本地可安装包、不发 npm」是当时的裁决原文，作为历史记录保留在下节。
+
 ## 0.1.0 (2026-11-18)
 
 首个本地可安装版本。设计定案于 `PLAN.md`（`plan_sha256` 锁定），契约准奏附必改 C1–C10，实现阶段不重开设计。

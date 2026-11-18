@@ -131,10 +131,10 @@ export const PANEL_READ_METHODS: readonly PanelInvokeMethod[] = [
 /** C8: hot values rendered into the envPrompt template. World.envPromptVars wants Record<string,string>. */
 export interface EnvPromptVars {
   [key: string]: string;
-  'qq-digest.pendingGroups': string;
-  'qq-digest.pendingRecords': string;
-  'qq-digest.lastReview': string;
-  'qq-digest.maxActiveRecords': string;
+  'qq.digest.pendingGroups': string;
+  'qq.digest.pendingRecords': string;
+  'qq.digest.lastReview': string;
+  'qq.digest.maxActiveRecords': string;
 }
 
 /** C8: GUESS / starting point, not a platform constant. Label it as such in code and README. */

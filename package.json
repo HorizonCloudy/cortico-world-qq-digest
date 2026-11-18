@@ -1,10 +1,10 @@
 {
   "name": "cortico-world-qq-digest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Classify QQ group messages in-turn into todo, goal, prompt reference and insight records, kept in a per-package ledger with a WebUI panel.",
   "license": "MIT",
-  "repository": "https://github.com/HorizonCloudy/cortico-world-qq-digest",
+  "repository": { "type": "git", "url": "git+https://github.com/HorizonCloudy/cortico-world-qq-digest.git" },
   "keywords": ["cortico-world", "cortico"],
   "engines": { "node": ">=22" },
   "packageManager": "pnpm@12.18.0",

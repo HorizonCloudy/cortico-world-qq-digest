@@ -89,7 +89,9 @@ describe('C2: verifySource reads the host event store before any write', () => {
     const r = verifySource(h.deps, ADD);
     expect(r.ok).toBe(true);
     expect(h.ranges).toHaveLength(1);
-    expect(h.ranges[0]).toMatchObject({ source: ADD.source, toTs: NOW, limit: 1000 });
+    // Host qqbot pushes source='qq-official' and puts the kind in type, so the
+    // lookup must use the bare worldId even when the caller passed a full type.
+    expect(h.ranges[0]).toMatchObject({ source: 'qq-official', toTs: NOW, limit: 1000 });
     expect(typeof h.ranges[0].fromTs).toBe('string');
   });
 

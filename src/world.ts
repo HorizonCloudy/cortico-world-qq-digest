@@ -10,7 +10,7 @@ import type { QqDigestConfigSection } from './config.ts';
 import { QQD_CONFIG_GROUP } from './config.ts';
 import { RecordStore } from './store.ts';
 import { createTools } from './tools.ts';
-import { ENV_PROMPT_FILE, ENV_PROMPT_KEY, envPromptVars, reminderText } from './prompt.ts';
+import { ENV_PROMPT_FILE, ENV_PROMPT_KEY, ENV_PROMPT_VAR_DECLS, envPromptVars, reminderText } from './prompt.ts';
 import { CATEGORIES, PANEL_METHODS, PANEL_READ_METHODS } from './types.ts';
 import type { Category, IngestEvent, PanelInvokeMethod, UpdatePatch } from './types.ts';
 
@@ -84,12 +84,7 @@ export class QqDigestWorld implements World {
         description: '进入 system 前缀的那一段；热值由 envPromptVars() 提供。',
         path: ENV_PROMPT_FILE,
         role: 'envPrompt',
-        vars: [
-          { name: 'qq-digest.pendingGroups', description: '尚未人工开启的群数' },
-          { name: 'qq-digest.pendingRecords', description: '尚未确认的记录数' },
-          { name: 'qq-digest.lastReview', description: '上次回看游标' },
-          { name: 'qq-digest.maxActiveRecords', description: '每群记录上限（猜测起点值）' },
-        ],
+        vars: ENV_PROMPT_VAR_DECLS.map((v) => ({ ...v })),
       }],
       storage: [{
         key: 'qq-digest.ledger',

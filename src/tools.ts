@@ -24,7 +24,10 @@ export const TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = [
     parameters: {
       type: 'object', additionalProperties: false,
       properties: {
-        source: { type: 'string', description: 'Host event source, e.g. qq-official.message.' },
+        source: {
+          type: 'string',
+          description: 'Event source worldId, one of qq-official | onebot-bridge | astrbot | qq. A full event type such as qq-official.message is also accepted; the .message part is an event kind, not the source.',
+        },
         conv: { type: 'string', description: 'Package conversation key from the four-branch derivation.' },
         message_id: { type: 'string', description: 'Platform message id, stringified.' },
         category: { ...enumSchema, description: 'todo | goal | prompt | insight.' },
@@ -86,15 +89,18 @@ export interface ToolsDeps {
 
 /** C2: verify (source, conv, message_id) really exists in the host event store. */
 export function verifySource(deps: Pick<ToolsDeps, 'range' | 'now'>, args: AddArgs): VerifyResult {
-  if (!sourceOf({ source: args.source })) return { ok: false, reason: 'not-qq' };
+  const canonical = sourceOf({ source: args.source });
+  if (!canonical) return { ok: false, reason: 'not-qq' };
   const toTs = deps.now();
   const fromTs = new Date(new Date(toTs).getTime() - 7 * 24 * 3600_000).toISOString();
-  const events = deps.range({ source: args.source, fromTs, toTs, limit: 1000 });
-  // onebot conv keys carry the numeric group id; derive it so the second filter is real.
-  const groupId = args.source.startsWith('onebot-bridge')
+  // Host EventStore.range compares source by full equality (event-store.ts:272,290). QQ worlds
+  // push with the bare worldId as source and put the kind in `type`, so querying with
+  // a full type such as qq-official.message would never find anything.
+  const events = deps.range({ source: canonical, fromTs, toTs, limit: 1000 });
+  const groupId = canonical === 'onebot-bridge'
     ? args.conv.replace(/^onebot\.group:/, '') : '';
   const key = {
-    conv: args.conv, message_id: args.message_id, source: args.source,
+    conv: args.conv, message_id: args.message_id, source: canonical,
     group_id: groupId, author_id: '', display_name: '',
   };
   const matched = events.find((ev) => {
@@ -136,8 +142,11 @@ export function createTools(deps: ToolsDeps): ToolDef[] {
         await deps.audit('qq-digest.audit', auditText(verified.reason ?? 'source-unknown', args.source));
         return 'source-unknown';
       }
+      // Keep the ledger's source equal to the host event source so the triple can
+      // be re-checked later with the same source query.
+      const storedSource = sourceOf({ source: args.source })!;
       const result = await deps.store.add({
-        ts: deps.now(), source: args.source, conv: args.conv, message_id: args.message_id,
+        ts: deps.now(), source: storedSource, conv: args.conv, message_id: args.message_id,
         category: args.category, content: args.content,
         ...(args.ref_message_id ? { ref_message_id: args.ref_message_id } : {}),
       });

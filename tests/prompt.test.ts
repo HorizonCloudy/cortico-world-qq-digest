@@ -49,12 +49,12 @@ describe('hot values (C8)', () => {
   it('returns string values for all four placeholders, including the configured ceiling', () => {
     const vars = envPromptVars(store, 42);
     expect(Object.keys(vars).sort()).toEqual([
-      'qq-digest.lastReview', 'qq-digest.maxActiveRecords',
-      'qq-digest.pendingGroups', 'qq-digest.pendingRecords',
+      'qq.digest.lastReview', 'qq.digest.maxActiveRecords',
+      'qq.digest.pendingGroups', 'qq.digest.pendingRecords',
     ].sort());
     for (const v of Object.values(vars)) expect(typeof v).toBe('string');
-    expect(vars['qq-digest.maxActiveRecords']).toBe('42');
-    expect(vars['qq-digest.lastReview']).toBe('(never)');
+    expect(vars['qq.digest.maxActiveRecords']).toBe('42');
+    expect(vars['qq.digest.lastReview']).toBe('(never)');
   });
 
   it('counts and the review cursor track the live ledger', async () => {
@@ -64,9 +64,9 @@ describe('hot values (C8)', () => {
       message_id: 'M-1', category: 'todo', content: '写周报',
     });
     const before = envPromptVars(store);
-    expect(before['qq-digest.pendingRecords']).toBe('1');
+    expect(before['qq.digest.pendingRecords']).toBe('1');
     await store.markReview();
-    expect(envPromptVars(store)['qq-digest.lastReview']).not.toBe('(never)');
+    expect(envPromptVars(store)['qq.digest.lastReview']).not.toBe('(never)');
   });
 });
 

@@ -4,6 +4,18 @@ import { QQ_SOURCES } from './types.ts';
 
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 
+/** First non-empty String() value; lets one branch accept several upstream field names. */
+const first = (...vals: unknown[]): string => {
+  for (const v of vals) {
+    const s = str(v);
+    if (s !== '') return s;
+  }
+  return '';
+};
+
+const objectOf = (v: unknown): Record<string, unknown> =>
+  (v && typeof v === 'object' ? v as Record<string, unknown> : {});
+
 export function sourceOf(ev: IngestEvent): QqSource | null {
   const s = str(ev.source);
   for (const p of QQ_SOURCES) {
@@ -36,35 +48,51 @@ export function deriveConvKey(ev: IngestEvent): ConvKey | null {
   if (source === 'qq-official') {
     // senderKey IS the conversation key: qq-official.group:<group_openid>.
     // c2c private chat has the same value for conversation and person key.
+    // Live qqbot@0.4.2 puts the message id in meta.messageId (camelCase) and the
+    // author in meta.author.user_openid / meta.data.author.user_openid.
+    const data = objectOf(ev.meta?.data);
+    const author = objectOf(ev.meta?.author ?? data.author);
     base.conv = str(ev.senderKey);
-    base.message_id = str(ev.meta?.message_id ?? ev.meta?.id ?? ev.meta?.dedupKey);
-    base.author_id = str(ev.meta?.author_id ?? ev.meta?.user_openid ?? ev.senderKey);
-    base.display_name = str(ev.meta?.sender_name ?? base.author_id);
-    base.group_id = base.conv.includes(':') ? base.conv.split(':').slice(1).join(':') : '';
+    base.message_id = first(
+      ev.meta?.messageId, ev.meta?.message_id, ev.meta?.id,
+      ev.meta?.dedupKey, data.id,
+    );
+    base.author_id = first(
+      ev.meta?.author_id, ev.meta?.user_openid, author.user_openid, ev.senderKey,
+    );
+    base.display_name = first(ev.meta?.sender_name, author.username, base.author_id);
+    base.group_id = first(
+      objectOf(ev.meta?.target).id, ev.meta?.group_openid, data.group_openid,
+      base.conv.includes(':') ? base.conv.split(':').slice(1).join(':') : '',
+    );
   } else if (source === 'onebot-bridge') {
-    // senderKey is a PERSON key and may be undefined; group and message ids live in meta.raw.
+    // senderKey is a PERSON key and may be undefined; the bridge stores the whole
+    // OneBot event in meta.raw, so group and message ids live there.
     base.group_id = str(raw.group_id);
     base.conv = `onebot.group:${base.group_id}`;
-    base.message_id = str(raw.message_id);
-    base.author_id = str(raw.user_id ?? ev.senderKey);
-    const sender = (raw.sender && typeof raw.sender === 'object')
-      ? raw.sender as Record<string, unknown> : {};
-    base.display_name = str(sender.card ?? sender.nickname ?? base.author_id);
+    base.message_id = first(raw.message_id, ev.meta?.messageId, ev.meta?.message_id);
+    base.author_id = first(raw.user_id, ev.senderKey);
+    const sender = objectOf(raw.sender);
+    base.display_name = first(sender.card, sender.nickname, base.author_id);
   } else if (source === 'astrbot') {
     // Three-segment UMO; first segment (platform name) varies and kind is a trigger enum.
-    const umo = ev.meta?.conv ?? ev.meta?.umo ?? ev.senderKey;
-    const parts = str(umo).split(':');
-    base.conv = `astrbot.${parts.length >= 3 ? parts.slice(2).join(':') : str(umo)}`;
-    base.message_id = str(raw.message_id ?? ev.meta?.message_id);
-    base.author_id = str(raw.user_id ?? ev.meta?.sender_id ?? ev.senderKey);
-    base.display_name = str(ev.meta?.sender_name ?? base.author_id);
+    // Live astrbot bridge names the message id meta.platformMsgId, not message_id.
+    const rawUmo = ev.meta?.conv ?? ev.meta?.umo ?? ev.senderKey;
+    const umoObj = objectOf(rawUmo);
+    const umo = typeof rawUmo === 'object' && rawUmo !== null
+      ? `${str(umoObj.kind)}:${str(umoObj.id)}` : str(rawUmo);
+    const parts = umo.split(':');
+    base.conv = `astrbot.${parts.length >= 3 ? parts.slice(2).join(':') : umo}`;
+    base.message_id = first(ev.meta?.platformMsgId, raw.message_id, ev.meta?.message_id);
+    base.author_id = first(raw.user_id, objectOf(ev.meta?.sender).id, ev.meta?.sender_id, ev.senderKey);
+    base.display_name = first(ev.meta?.sender_name, objectOf(ev.meta?.sender).name, base.author_id);
   } else {
     // Built-in qq world: meta.conv = { kind, id }.
     base.conv = `qq.${str(conv.kind)}:${str(conv.id)}`;
     base.group_id = str(conv.id);
-    base.message_id = str(ev.meta?.message_id);
-    base.author_id = str(ev.meta?.user_id ?? ev.senderKey);
-    base.display_name = str(ev.meta?.sender_name ?? base.author_id);
+    base.message_id = first(ev.meta?.message_id, ev.meta?.msgId);
+    base.author_id = first(ev.meta?.user_id, ev.senderKey);
+    base.display_name = first(ev.meta?.sender_name, base.author_id);
   }
   return base;
 }

@@ -4,13 +4,16 @@
 
 - 形态：World 扩展（`cortico.kind=world`，`cortico.api=6`），World id `qq-digest`。
 - 平台：cortico@0.2.16（本机宿主 0.2.21）。
-- 交付：**本地可安装包**，不发 npm、不进索引仓。
-- 不做：后台批处理、World 调模型、任何出网、跨入口同一物理群的自动合并、转发正文读取（一期只落占位记录）。
-- 设计已定案（`PLAN.md` + `CONTRACT.md` + `contract-approval.json`），改动设计需重新送审，不要在这个包里重开设计。
+- 交付：npm 公开包 `cortico-world-qq-digest`（源码 `HorizonCloudy/cortico-world-qq-digest`），从 npm 装进宿主；不进索引仓。0.1.0 的裁决原文是「本地可安装包，不发 npm」，仓主 2026-11-18 后续指令改为 GitHub → npm → 从 npm 安装，见 `CHANGELOG.md`。
+- 运行时不做：后台批处理、World 调模型、任何出网、跨入口同一物理群的自动合并、转发正文读取（一期只落占位记录）。设计已定案（`PLAN.md` + `CONTRACT.md` + `contract-approval.json`），改动设计需重新送审，不要在这个包里重开设计。
+
+## 与 QQ 插件怎么联动
+
+本包**不直连 QQ**：四个 QQ World（`cortico-world-qqbot` / `onebot-bridge` / `astrbot-bridge` / 内置 `qq`）把消息推进宿主事件库，模型在对话轮里看到事件后调 `qqd_add`，本包再用 `host.store.range` 回查三元组 `source / conv / message_id` 真实存在才落盘。事件的 `source` 是裸 worldId，`type` 才是 `qq-official.message` 这种带事件种类的字符串——`range` 对 source 做全等比较，所以回查一律按裸 worldId 做。四个入口的 conv 与 message_id 字段表写在 `src/ENV_PROMPT.md`，会随环境前缀一起交给模型。
 
 ## 怎么装
 
-> 本机宿主端口 17788 / 7797 **只允许 GET**。下面凡涉及 POST / 重启 / 真人群消息的步骤，都只给仓主手动执行；本包的安装过程不主动碰宿主。
+> 宿主是 `http://127.0.0.1:17788`。安装走 `POST /api/extensions/install`；**重启宿主与 activation 由仓主决定**，装完只是 `pending-restart`，不重启不会加载新代码。
 
 1. 依赖就绪（写码时已验过，Node 22.22.2 / pnpm 12.18.0）：
 
@@ -21,9 +24,18 @@
 
    本机 npmjs TLS 不稳，固定走 npmmirror。
 
-2. 以**本地目录**方式装进部署（不发 npm）。例如把本包目录挂到部署的扩展目录，或在部署侧 `pnpm add file:C:/Users/54301/qq-digest`。`package.json` 的 `files` 已包含 `describe.json` 与面板产物 `src/webui/client.js`；声明了的产物不在包内会 `check:extension` 失败。
+2. 从 npm 安装（宿主扩展源若指向未同步的镜像，先在 WebUI / `POST /api/extensions/registry` 临时切到 `https://registry.npmjs.org/`，装完还原）：
 
-3. **activation 由仓主手动做**：本包 `defaults().enabled = false`，装完只是 available。重启宿主后在 WebUI 里启用 `qq-digest`，或由仓主对宿主发 `POST /api/worlds/activation`。**`loaded` 不等于可用**，必须再确认 `enabled`。
+   ```bash
+   # 或等价地让宿主执行：
+   curl -X POST -H 'Content-Type: application/json' \
+     -d '{"name":"cortico-world-qq-digest","version":"0.1.1"}' \
+     http://127.0.0.1:17788/api/extensions/install
+   ```
+
+   `package.json` 的 `files` 已包含 `describe.json`、`LICENSE` 与面板产物 `src/webui/client.js`；声明了的产物不在包内会 `check:extension` 失败。
+
+3. **重启宿主后确认 activation**：本包 `defaults().enabled = false`，装完只是 `pending-restart`。重启后在 WebUI 里启用 `qq-digest`，或由仓主对宿主发 `POST /api/worlds/activation`。**`loaded` 不等于可用**，必须再确认 `enabled`。
 
 4. 首次启用后所有群默认**关闭**。规则层只给候选 + 置信 + 依据，不会自动开群；请人在 WebUI 面板里逐群点「人工开启」，`qqd_add` / `qqd_update` / `qqd_remove` 才有写权限。未开群一律回执 `group-disabled`。
 
@@ -33,13 +45,13 @@
 
 | 道 | 命令 | 过闸标准 |
 |---|---|---|
-| 1 | `npx vitest run`（包内） | 退 0；92 个用例覆盖 PLAN 每条硬约束 |
+| 1 | `npx vitest run`（包内） | 退 0；108 个用例覆盖 PLAN 每条硬约束、平台模板渲染与四入口真实事件形状 |
 | 2 | `pnpm exec tsc --noEmit` | 退 0 |
 | 3 | `pnpm -C C:/Users/54301/forge-refresh-20261116/fresh/Cortico describe:extension C:/Users/54301/qq-digest` | 退 0，生成 `describe.json` |
 | 4 | `pnpm -C C:/Users/54301/forge-refresh-20261116/fresh/Cortico check:extension C:/Users/54301/qq-digest` | 退 0（`Extension check passed.`） |
 | 5 | 对 `src/` 裸扫 `fetch(`、`XMLHttpRequest`、`net.connect`、`child_process`、`ctx.secret`、`speak`、`act` | 全部零命中 |
 | 6 | `tests/dry-mount.test.ts` 用平台自己的 `cortico/extensions/dry-mount.ts` 的 `dryMountWorld` | `report.failures === []`，四工具全注册、无重名 |
-| 7 | 本地目录安装 + 重启宿主后 `GET http://127.0.0.1:17788/api/extensions` | `state == loaded`，再看 `enabled` |
+| 7 | 从 npm 安装 + 重启宿主后 `GET http://127.0.0.1:17788/api/extensions` | `state == loaded`，再看 `enabled`；0.1.1 更新后仍需重启才加载新代码 |
 | 8 | 真人在群里发一条消息 | 只有仓主能做，本次交付未执行 |
 
 包内一键复跑前六道：
@@ -50,7 +62,7 @@ npx vitest run
 pnpm exec tsc --noEmit
 ```
 
-第 7、8 道需要宿主操作权限，**本次未跑，状态为「未核验」**，不写成通过。
+第 7 道：0.1.0 已从 npm 装进宿主，宿主侧当前 `state=loaded` / `enabled=true`；**0.1.1 装完后新代码仍要重启才生效**。第 8 道只有仓主能做，**状态为「未核验」**，不写成通过。
 
 ## 存储与隐私
 
