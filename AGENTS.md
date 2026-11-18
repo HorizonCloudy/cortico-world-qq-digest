@@ -6,7 +6,7 @@
 
 - `PLAN.md`、`contract-approval.json`：只读。`plan_sha256` 锁着定案，改了准奏作废。
 - `C:/Users/54301/qq-digest-research-20261117/CONTRACT.md`、`V1..V7*.md`：只读上游证据。
-- 宿主（端口 17788 / 7797）：**只允许 GET**。不许 POST / PUT / 删除 / 重启。activation、真人群消息、推包只有仓主能做。
+- 宿主（端口 17788 / 7797）：默认只读、优先 GET。**仅当仓主显式授权安装时**才允许 `POST /api/extensions/install` 与 `POST /api/extensions/registry`（临时切官方源，装完还原）；不擅自 PUT / 删除 / 重启。activation、真人群消息只有仓主能做。
 - 不替仓主 `git commit` / push / 改仓库可见性，除非被明确要求。
 
 ## 写码前门禁
