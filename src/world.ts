@@ -9,10 +9,12 @@ import { nowIso } from 'cortico/core/util.ts';
 import type { QqDigestConfigSection } from './config.ts';
 import { QQD_CONFIG_GROUP } from './config.ts';
 import { RecordStore } from './store.ts';
-import { createTools } from './tools.ts';
+import { addHandler, createTools, type ToolsDeps } from './tools.ts';
+import { deriveConvKey } from './conv.ts';
+import { assertAdvisoryOnly, suggestGroupNature } from './classify.ts';
 import { ENV_PROMPT_FILE, ENV_PROMPT_KEY, ENV_PROMPT_VAR_DECLS, envPromptVars, reminderText } from './prompt.ts';
-import { CATEGORIES, PANEL_METHODS, PANEL_READ_METHODS } from './types.ts';
-import type { Category, IngestEvent, PanelInvokeMethod, UpdatePatch } from './types.ts';
+import { CATEGORIES, PANEL_METHODS, PANEL_READ_METHODS, QQ_SOURCES } from './types.ts';
+import type { Category, IngestCandidate, IngestEvent, PanelInvokeMethod, UpdatePatch } from './types.ts';
 
 const WORLD_ID = 'qq-digest';
 const PANEL_ID = 'records';
@@ -35,7 +37,15 @@ export class QqDigestWorld implements World {
   }
 
   tools(): ToolDef[] {
-    return createTools({
+    return createTools(this.panelDeps());
+  }
+
+  /**
+   * Shared by the four model tools and the panel RPCs. `host` is read at call
+   * time: webUi() can be declared before start(host) has run.
+   */
+  private panelDeps(): ToolsDeps {
+    return {
       store: this.store,
       // C2: the raw event store is shared; we only read it.
       range: (q) => (this.host ? this.host.store.range(q) : []) as readonly IngestEvent[],
@@ -48,7 +58,7 @@ export class QqDigestWorld implements World {
         });
       },
       now: () => nowIso(this.ctx.timezone),
-    });
+    };
   }
 
   /** C1/C9: panel RPC, read methods are GET-safe; export uses $binary. */
@@ -75,7 +85,7 @@ export class QqDigestWorld implements World {
       panels: [{
         id: PANEL_ID,
         title: 'QQ 群消息摘要',
-        description: '浏览四类记录、纠正内容、逐群开启。未开启的群拒绝一切写入。',
+        description: '先「扫描 QQ 事件」看到插件推入的会话 → 人工开启群 → 从真实消息建档；下方还能纠正、筛选、导出。未开启的群拒绝一切写入。',
         getMethods: [...PANEL_READ_METHODS],
       }],
       promptDocs: [{
@@ -141,6 +151,55 @@ export class QqDigestWorld implements World {
           }
           case 'stat': return store.stats();
           case 'clear': { await store.clear(); return 'cleared'; }
+          /** 0.2.0: read the four QQ ingresses so an empty ledger still has a first action. */
+          case 'scanIngest': {
+            const deps = this.panelDeps();
+            const toTs = deps.now();
+            const fromTs = new Date(new Date(toTs).getTime() - 7 * 24 * 3600_000).toISOString();
+            const byConv = new Map<string, IngestCandidate>();
+            for (const src of QQ_SOURCES) {
+              for (const ev of deps.range({ source: src, fromTs, toTs, limit: 1000 })) {
+                const key = deriveConvKey(ev);
+                if (!key || !key.conv || !key.message_id) continue;
+                const g = store.getGroup(key.conv);
+                const prev = byConv.get(key.conv);
+                if (prev) {
+                  prev.count += 1;
+                  if ((ev.ts ?? '') >= prev.lastTs) {
+                    prev.lastTs = ev.ts ?? '';
+                    prev.message_id = key.message_id;
+                  }
+                  continue;
+                }
+                byConv.set(key.conv, {
+                  conv: key.conv, source: src, message_id: key.message_id,
+                  count: 1, lastTs: ev.ts ?? '', display_name: key.display_name,
+                  registered: !!g, enabled: !!g?.enabled,
+                });
+              }
+            }
+            // C7: no ev.text leaves this method — ids, keys and counts only.
+            return [...byConv.values()].sort((a, b) => b.lastTs.localeCompare(a.lastTs)).slice(0, 100);
+          }
+          /** C1: register a closed group. Only setGroupEnabled may open it. */
+          case 'upsertGroup': {
+            const conv = first(0);
+            if (typeof conv !== 'string' || !conv.trim()) throw new Error('bad conv');
+            const rawName = first(1);
+            const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : undefined;
+            const suggestion = suggestGroupNature({
+              conv, groupName: name, prior: store.getGroup(conv),
+            });
+            assertAdvisoryOnly(suggestion);
+            return store.suggestGroup(conv, suggestion, name);
+          }
+          /** Human-classified add: same gate, verification and audit as qqd_add. */
+          case 'addRecord': {
+            const p = first(0) && typeof first(0) === 'object'
+              ? first(0) as Record<string, unknown> : {};
+            const receipt = await addHandler(this.panelDeps())(p);
+            return { receipt, ok: receipt.startsWith('added #') || receipt.startsWith('duplicate of #') };
+          }
         }
       },
     };

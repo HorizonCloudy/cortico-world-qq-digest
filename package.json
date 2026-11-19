@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-qq-digest",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "type": "module",
   "description": "Classify QQ group messages in-turn into todo, goal, prompt reference and insight records, kept in a per-package ledger with a WebUI panel.",
   "license": "MIT",

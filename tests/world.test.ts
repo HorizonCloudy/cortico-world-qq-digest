@@ -88,7 +88,7 @@ describe('panel invoke RPC', () => {
     const invoke = world.webUi().invoke!;
     await expect(invoke('other', 'listRecords', [])).rejects.toThrow('unknown panel');
     await expect(invoke('records', 'notAMethod', [])).rejects.toThrow('unknown method');
-    expect([...PANEL_METHODS]).toHaveLength(8);
+    expect([...PANEL_METHODS]).toHaveLength(11);
   });
 
   it('only setGroupEnabled can open a group, and it is marked manual', async () => {

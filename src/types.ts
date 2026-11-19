@@ -118,14 +118,30 @@ export interface StoreStats {
   bytes: number;
 }
 
+/** C9: a QQ conversation surfaced from the host event store. Never carries ev.text. */
+export interface IngestCandidate {
+  conv: string;
+  source: QqSource;
+  /** A real message id from the newest event of this conversation. */
+  message_id: string;
+  count: number;
+  lastTs: string;
+  display_name: string;
+  registered: boolean;
+  enabled: boolean;
+}
+
 /** C9: every custom panel RPC method; read methods are listed in getMethods. */
 export const PANEL_METHODS = [
   'listRecords', 'listGroups', 'setGroupEnabled', 'updateRecord',
   'removeRecord', 'exportTable', 'stat', 'clear',
+  // 0.2.0: the panel needs a first action even with an empty ledger. These three
+  // are read-only discovery / closed-group registration / human-classified add.
+  'scanIngest', 'upsertGroup', 'addRecord',
 ] as const;
 export type PanelInvokeMethod = typeof PANEL_METHODS[number];
 export const PANEL_READ_METHODS: readonly PanelInvokeMethod[] = [
-  'listRecords', 'listGroups', 'exportTable', 'stat',
+  'listRecords', 'listGroups', 'exportTable', 'stat', 'scanIngest',
 ];
 
 /** C8: hot values rendered into the envPrompt template. World.envPromptVars wants Record<string,string>. */

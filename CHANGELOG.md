@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.2.1 (2026-11-18)
+
+按仓主 2026-11-18「UI 被损坏了，每一块都窄一些」的反馈修面板布局。**只改 `src/webui/client.js` 与 `tests/panel.test.ts`，不动后端、不动契约、不动 `PLAN.md`**。
+
+### 原缺陷（真实浏览器实测）
+
+0.2.0 的表格 7 列无列宽约束，长 mono 会话键 / 消息 id 把表格撑到 1953px（宿主卡片只有 1040px），后四列与操作按钮跑到屏幕外；`ui.rowbar()` 的 `flex-wrap:wrap` 在操作列里把「填入建档」压成 37px 宽 × 94px 高的竖条，行高 179px。卡片在当前宿主主题下只有一条分隔线，看不出边界。
+
+### 修复
+
+- 每张卡 `max-width:880px` 居中，恢复 1px 边框与内边距，成为清晰的一块。
+- 所有表格 `table-layout:fixed` + 声明列宽；扫描表与记录表由 7 列收敛为 5 列（状态与操作合并、消息 id 并入会话键单元格）。
+- 长标识单行省略，完整值放 `title`；「条数·最近」只显示 `条数 · HH:mm`，入口列显示短名（`title` 保留裸 worldId）。
+- 操作单元格改 `flex-wrap:nowrap`，按钮 `white-space:nowrap`，不再竖排。
+- `minimalUi()` 降级路径同步以上约束。
+
+### 验证
+
+- `npx vitest run`：12 files / **128 passed**；`tsc --noEmit` 退 0；平台 `describe:extension` / `check:extension` 退 0；契约门禁 5 项 ALLOW；安全裸扫零命中。
+- 真实浏览器 CDP 量测（拦截面板资源后重载）：卡片 880px；四个表格 `scrollWidth == clientWidth`（830/830、840/840 ×3）；「填入建档」76×34px；行高 47–57px；扫描表 5 列。
+- **宿主把面板脚本按版本缓存在进程内存**（`cortico/src/web/server.ts:2432`：发加载时读进内存的字节，不读磁盘）。装完 0.2.1 后刷新浏览器无效，**必须重启宿主**才能看到新面板。0.2.0 交付说明里「刷新页面即可」的判断有误，以此条为准。
+
+## 0.2.0 (2026-11-18)
+
+按仓主 2026-11-18「这没法操作啊，重新设计」的明确指令重做 WebUI 面板。**只改交互层与面板 RPC，不动 `PLAN.md` 定案、不动契约 C1–C10**，`plan_sha256` 保持不变；改前已补跑 `check_contract_approval.py`，10 项全 ALLOW。
+
+### 原缺陷
+
+0.1.1 的 `src/webui/client.js` 只用裸 `document.createElement`，没用宿主 `ctx.ui` 原语，在宿主里渲染成五行纯文字：按钮没有边框样式（「刷新」「导出整表」连成一坨认不出来），「逐群开关」「记录」两个标题下全空。更致命的是**空数据死锁**：群表只有被登记过的群才会出现，而记录又只能在开群后由模型写入；`0 条记录 / 0 个群` 时面板没有任何可以点的第一步，也没把 QQ 插件推入的事件接进来，人无从下手。
+
+### 重设计
+
+- 面板改用宿主 `ctx.ui` 原语（`sheet` / `rowbar` / `button` / `input` / `select` / `textarea` / `table` / `pill` / `checkbox` / `confirm`），按钮、输入框、表格、卡片、空态全部走宿主主题样式；宿主不提供 `ctx.ui` 时有带内联样式的原生 DOM 降级，不会再退化成纯文字。
+- 五张卡按操作顺序排：概览与工具条 → ① 扫描 QQ 插件推入的会话 → ② 逐群开关（含手工登记会话键）→ ③ 记录本（搜索 / 类别筛选 / 只看未完成 / 就地改摘录与类别 / 完成 / 删除）→ ④ 从一条真实消息建档 + 四入口字段对照。
+- **打开面板即自动扫描**：`scanIngest` 只读宿主事件库里四个 QQ 入口最近 7 天的事件，用 `deriveConvKey` 按会话键聚合，列出 source / conv / 最新 message_id / 条数 / 时间 / 登记状态。空记录本也有明确第一步，不再死锁。
+- 三个新面板 RPC：
+  - `scanIngest`（GET-safe，只读，**不返回任何 `ev.text`**）
+  - `upsertGroup`（只登记关闭群，产出性质候选 + 置信；**绝不写 `enabled`**）
+  - `addRecord`（人工分类写入，复用 `qqd_add` 的同一条 `addHandler`）
+- `addHandler` 从 `createTools` 抽出为单一真源：模型通道 `qqd_add` 与人工通道 `addRecord` 共用「群未开 → `group-disabled` → 回查三元组 → 审计 → `store.add` → 去重回执」，门禁不会各自漂移。
+- 开群仍然只能由人点：`upsertGroup` 不接受 `enabled` 参数，开启必须另点 `setGroupEnabled`（C1）。扫描行给「人工开启此群」，群表给「人工开启 / 关闭此群」，手工登记给「登记为关闭 / 登记并人工开启」。
+- 扫描行可「填入建档」，自动带出真实三元组，人选类别、写一句最小摘录后核验写入；编造的三元组仍回 `source-unknown`，群未开仍回 `group-disabled`（C2/C7）。
+- 所有外部文本（群名、昵称、摘录）仍只进 `textContent`；无 `innerHTML`、无 `fetch` / 动态导入 / 构建链（C9）。
+
+### 验证
+
+- `npx vitest run`：12 files / **123 passed**（0.1.1 为 11 files / 108 passed）；`pnpm exec tsc --noEmit` 退 0。
+- 新增 `tests/panel-actions.test.ts`（9 例）：四入口聚合且不泄漏原文、`upsertGroup` 不开群、`addRecord` 的 group-disabled / source-unknown / 外部审计 / 写入后 `qqd_add` 去重。
+- 重写 `tests/panel.test.ts`（14 例）：FakeUi 复现宿主原语，断言按钮是真 `button` 且带 `primary`、空态有下一步引导、扫描→开群→建档链路、降级路径不抛错。
+- `tests/world.test.ts` 的 `PANEL_METHODS` 数量断言 8 → 11；`PANEL_READ_METHODS` 增加 `scanIngest`。
+
 ## 0.1.1 (2026-11-18)
 
 修复两处会让本包在真实宿主里失效的缺陷，不改 `PLAN.md` 的设计与契约 C1–C10。

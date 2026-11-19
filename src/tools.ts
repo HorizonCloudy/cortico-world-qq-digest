@@ -121,37 +121,46 @@ function receipt(r: AddResult): string {
   return r.reason;
 }
 
+/**
+ * The single write path for a classified record. Both the model tool (qqd_add)
+ * and the human panel (addRecord) go through here, so group gating, source
+ * verification, dedup and the audit receipt cannot drift apart (C1/C2/C3).
+ */
+export function addHandler(deps: ToolsDeps): (a: Record<string, unknown>) => Promise<string> {
+  return async (a) => {
+    const args: AddArgs = {
+      source: asString(a.source), conv: asString(a.conv), message_id: asString(a.message_id),
+      category: asCategory(a.category) as Category, content: asString(a.content),
+      ...(typeof a.ref_message_id === 'string' ? { ref_message_id: a.ref_message_id } : {}),
+    };
+    if (!args.source || !args.conv || !args.message_id || !args.category || !args.content) return 'invalid';
+    const group = deps.store.getGroup(args.conv);
+    // C1: unopened groups refuse every write.
+    if (!group || !group.enabled) return 'group-disabled';
+    const verified = verifySource(deps, args);
+    if (!verified.ok) {
+      // Q1: audit copy carries the reason and the source name only, never group text.
+      await deps.audit('qq-digest.audit', auditText(verified.reason ?? 'source-unknown', args.source));
+      return 'source-unknown';
+    }
+    // Keep the ledger's source equal to the host event source so the triple can
+    // be re-checked later with the same source query.
+    const storedSource = sourceOf({ source: args.source })!;
+    const result = await deps.store.add({
+      ts: deps.now(), source: storedSource, conv: args.conv, message_id: args.message_id,
+      category: args.category, content: args.content,
+      ...(args.ref_message_id ? { ref_message_id: args.ref_message_id } : {}),
+    });
+    return receipt(result);
+  };
+}
+
 export function createTools(deps: ToolsDeps): ToolDef[] {
   const byName = new Map(TOOL_DECLS.map((d) => [d.name, d]));
 
   const add: ToolDef = {
     ...byName.get('qqd_add')!,
-    handler: async (a) => {
-      const args: AddArgs = {
-        source: asString(a.source), conv: asString(a.conv), message_id: asString(a.message_id),
-        category: asCategory(a.category) as Category, content: asString(a.content),
-        ...(typeof a.ref_message_id === 'string' ? { ref_message_id: a.ref_message_id } : {}),
-      };
-      if (!args.source || !args.conv || !args.message_id || !args.category || !args.content) return 'invalid';
-      const group = deps.store.getGroup(args.conv);
-      // C1: unopened groups refuse every write.
-      if (!group || !group.enabled) return 'group-disabled';
-      const verified = verifySource(deps, args);
-      if (!verified.ok) {
-        // Q1: audit copy carries the reason and the source name only, never group text.
-        await deps.audit('qq-digest.audit', auditText(verified.reason ?? 'source-unknown', args.source));
-        return 'source-unknown';
-      }
-      // Keep the ledger's source equal to the host event source so the triple can
-      // be re-checked later with the same source query.
-      const storedSource = sourceOf({ source: args.source })!;
-      const result = await deps.store.add({
-        ts: deps.now(), source: storedSource, conv: args.conv, message_id: args.message_id,
-        category: args.category, content: args.content,
-        ...(args.ref_message_id ? { ref_message_id: args.ref_message_id } : {}),
-      });
-      return receipt(result);
-    },
+    handler: addHandler(deps),
   };
 
   const update: ToolDef = {
